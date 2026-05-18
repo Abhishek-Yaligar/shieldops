@@ -1,0 +1,36 @@
+# Env
+.env
+*.env.local
+
+# Node
+node_modules/
+dist/
+build/
+coverage/
+*.log
+npm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+ai-module/models/*.pkl
+
+# Docker
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kubernetes secrets (never commit)
+k8s/secrets/
+kubeconfig

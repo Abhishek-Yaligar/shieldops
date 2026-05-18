@@ -1,0 +1,196 @@
+version: '3.9'
+
+networks:
+  shieldops-net:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  prometheus-data:
+  grafana-data:
+  logs:
+
+services:
+
+  # ── MongoDB ──────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: shieldops-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASS:-shieldops_pass}
+    volumes:
+      - mongo-data:/data/db
+      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks:
+      - shieldops-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Auth Service ─────────────────────────────────────────────────────────
+  auth-service:
+    build: ./backend/auth-service
+    container_name: shieldops-auth
+    restart: unless-stopped
+    environment:
+      PORT: 3001
+      MONGO_URI: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASS:-shieldops_pass}@mongo:27017/shieldops-auth?authSource=admin
+      JWT_SECRET: ${JWT_SECRET:-shieldops-super-secret-jwt-key-change-in-prod}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-shieldops-refresh-secret-change-in-prod}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-internal-secret-key}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - shieldops-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── User Service ─────────────────────────────────────────────────────────
+  user-service:
+    build: ./backend/user-service
+    container_name: shieldops-users
+    restart: unless-stopped
+    environment:
+      PORT: 3002
+      MONGO_URI: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASS:-shieldops_pass}@mongo:27017/shieldops-auth?authSource=admin
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - shieldops-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── Data Service ─────────────────────────────────────────────────────────
+  data-service:
+    build: ./backend/data-service
+    container_name: shieldops-data
+    restart: unless-stopped
+    environment:
+      PORT: 3003
+      MONGO_URI: mongodb://${MONGO_ROOT_USER:-admin}:${MONGO_ROOT_PASS:-shieldops_pass}@mongo:27017/shieldops-data?authSource=admin
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-internal-secret-key}
+    volumes:
+      - logs:/var/log/shieldops
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - shieldops-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3003/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ── AI Module ────────────────────────────────────────────────────────────
+  ai-module:
+    build: ./ai-module
+    container_name: shieldops-ai
+    restart: unless-stopped
+    environment:
+      PORT: 5000
+      MODEL_PATH: /app/models/anomaly_model.pkl
+      SCALER_PATH: /app/models/scaler.pkl
+    networks:
+      - shieldops-net
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 20s
+      timeout: 10s
+      retries: 3
+
+  # ── API Gateway ──────────────────────────────────────────────────────────
+  api-gateway:
+    build: ./backend/api-gateway
+    container_name: shieldops-gateway
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
+      AUTH_SERVICE_URL: http://auth-service:3001
+      USER_SERVICE_URL: http://user-service:3002
+      DATA_SERVICE_URL: http://data-service:3003
+      AI_MODULE_URL: http://ai-module:5000
+      JWT_SECRET: ${JWT_SECRET:-shieldops-super-secret-jwt-key-change-in-prod}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:-internal-secret-key}
+      LOG_DIR: /var/log/shieldops
+    volumes:
+      - logs:/var/log/shieldops
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+      data-service:
+        condition: service_healthy
+      ai-module:
+        condition: service_healthy
+    networks:
+      - shieldops-net
+
+  # ── Frontend ─────────────────────────────────────────────────────────────
+  frontend:
+    build: ./frontend
+    container_name: shieldops-frontend
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    environment:
+      REACT_APP_API_GATEWAY_URL: http://localhost:3000
+    depends_on:
+      - api-gateway
+    networks:
+      - shieldops-net
+
+  # ── Prometheus ───────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: shieldops-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - shieldops-net
+
+  # ── Grafana ──────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: shieldops-grafana
+    restart: unless-stopped
+    ports:
+      - "3004:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-shieldops123}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - shieldops-net

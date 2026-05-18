@@ -1,0 +1,158 @@
+# ── User Service ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: shieldops
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+        - name: user-service
+          image: shieldops/user-service:latest
+          ports:
+            - containerPort: 3002
+          env:
+            - name: PORT
+              value: "3002"
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: shieldops-secrets
+                  key: MONGO_URI_USERS
+          livenessProbe:
+            httpGet: { path: /health, port: 3002 }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /health, port: 3002 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { memory: "128Mi", cpu: "100m" }
+            limits:   { memory: "256Mi", cpu: "300m" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: shieldops
+spec:
+  selector:
+    app: user-service
+  ports:
+    - port: 3002
+      targetPort: 3002
+  type: ClusterIP
+---
+# ── Data Service ──────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-service
+  namespace: shieldops
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: data-service
+  template:
+    metadata:
+      labels:
+        app: data-service
+    spec:
+      containers:
+        - name: data-service
+          image: shieldops/data-service:latest
+          ports:
+            - containerPort: 3003
+          env:
+            - name: PORT
+              value: "3003"
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: shieldops-secrets
+                  key: MONGO_URI_DATA
+            - name: INTERNAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: shieldops-secrets
+                  key: INTERNAL_API_KEY
+          livenessProbe:
+            httpGet: { path: /health, port: 3003 }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /health, port: 3003 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { memory: "128Mi", cpu: "100m" }
+            limits:   { memory: "256Mi", cpu: "300m" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-service
+  namespace: shieldops
+spec:
+  selector:
+    app: data-service
+  ports:
+    - port: 3003
+      targetPort: 3003
+  type: ClusterIP
+---
+# ── AI Module ─────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-module
+  namespace: shieldops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-module
+  template:
+    metadata:
+      labels:
+        app: ai-module
+    spec:
+      containers:
+        - name: ai-module
+          image: shieldops/ai-module:latest
+          ports:
+            - containerPort: 5000
+          livenessProbe:
+            httpGet: { path: /health, port: 5000 }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: { path: /health, port: 5000 }
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            requests: { memory: "256Mi", cpu: "200m" }
+            limits:   { memory: "512Mi", cpu: "500m" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-module
+  namespace: shieldops
+spec:
+  selector:
+    app: ai-module
+  ports:
+    - port: 5000
+      targetPort: 5000
+  type: ClusterIP
