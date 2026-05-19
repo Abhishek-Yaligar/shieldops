@@ -34,7 +34,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: backend/${{ matrix.service }}
-        run: npm ci
+        run: npm install
 
       - name: Run tests
         working-directory: backend/${{ matrix.service }}
