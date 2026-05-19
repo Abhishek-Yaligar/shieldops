@@ -121,7 +121,7 @@ services:
       - "3000:3000"
     environment:
       PORT: 3000
-      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
+      FRONTEND_URL: ${FRONTEND_URL:-http://34.66.243.163:3001}
       AUTH_SERVICE_URL: http://auth-service:3001
       USER_SERVICE_URL: http://user-service:3002
       DATA_SERVICE_URL: http://data-service:3003
@@ -151,7 +151,7 @@ services:
     ports:
       - "3001:80"
     environment:
-      REACT_APP_API_GATEWAY_URL: http://localhost:3000
+      REACT_APP_API_GATEWAY_URL: http://34.66.243.163:3000
     depends_on:
       - api-gateway
     networks:

@@ -12,7 +12,7 @@ const app = express();
 
 // Security headers
 app.use(helmet());
-app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:3001', credentials: true }));
+app.use(cors({ origin: process.env.FRONTEND_URL || 'http://34.66.243.163:3001', credentials: true }));
 // Body parser removed to allow proxy streaming
 // app.use(express.json());
 
@@ -40,19 +40,11 @@ const authLimiter = rateLimit({
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'api-gateway' }));
 
 // Auth routes (public)
-app.use('/auth', express.json(), authLimiter, createProxyMiddleware({
+app.use('/auth', authLimiter, createProxyMiddleware({
   target: process.env.AUTH_SERVICE_URL || 'http://auth-service:3001',
   changeOrigin: true,
   pathRewrite: { '^/auth': '' },
   on: {
-    proxyReq: (proxyReq, req) => {
-      if (req.body) {
-        const bodyData = JSON.stringify(req.body);
-        proxyReq.setHeader('Content-Type', 'application/json');
-        proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-        proxyReq.write(bodyData);
-      }
-    },
     error: (err, req, res) => res.status(502).json({ error: 'Auth service unavailable' }),
   },
 }));
